@@ -1,3 +1,4 @@
+
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { connection } from "next/server";
@@ -11,7 +12,6 @@ export default async function RegistrationsPage() {
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
-
   const email = data?.claims?.email;
 
   if (
@@ -27,31 +27,146 @@ export default async function RegistrationsPage() {
     { data: churches, error: churchesError },
     { data: registrations, error: registrationsError },
     { data: delegates, error: delegatesError },
+    { data: onsiteRegistrations, error: onsiteError },
   ] = await Promise.all([
-    supabaseAdmin
-      .from("Churches")
-      .select("*")
-      .order("Timestamp", { ascending: false }),
-
+    supabaseAdmin.from("Churches").select("*").order("Timestamp", { ascending: false }),
     supabaseAdmin.from("Registrations").select("*"),
-
     supabaseAdmin.from("Delegates").select("*"),
+    supabaseAdmin.from("On-Site Registrations").select("*").order("Timestamp", { ascending: false }),
   ]);
 
   const hasError =
-    churchesError || registrationsError || delegatesError;
+    churchesError || registrationsError || delegatesError || onsiteError;
 
   if (hasError) {
     console.error("Registration page errors:", {
       churchesError,
       registrationsError,
       delegatesError,
+      onsiteError,
     });
   }
 
-  const totalChurches = churches?.length ?? 0;
-  const totalRegistrations = registrations?.length ?? 0;
-  const totalDelegates = delegates?.length ?? 0;
+  const onlineChurches = churches ?? [];
+  const onlineRegistrations = registrations ?? [];
+  const allDelegates = delegates ?? [];
+  const walkInRegistrations = onsiteRegistrations ?? [];
+
+  const normalizeChurchName = (name: string | null | undefined) =>
+    (name ?? "").trim().toLowerCase();
+
+  type ChurchRow = {
+    key: string;
+    name: string;
+    address: string;
+    representative: string;
+    contact: string;
+    email: string;
+    timestamp: string | null;
+    onlineRegistrationId: string | null;
+    onsiteRegistrationId: string | null;
+    delegateCount: number;
+    onlineSubmissionCount: number;
+    onsiteSubmissionCount: number;
+  };
+
+  const churchMap = new Map<string, ChurchRow>();
+
+  for (const church of onlineChurches) {
+    const name = church["Church Name"] || "Unnamed Church";
+    const key = normalizeChurchName(name) || `online-${church.id}`;
+
+    const churchRegistrationList = onlineRegistrations
+      .filter((registration) => registration.church_id === church.id)
+      .sort(
+        (a, b) =>
+          new Date(b.Timestamp ?? 0).getTime() -
+          new Date(a.Timestamp ?? 0).getTime()
+      );
+
+    const registrationIds = churchRegistrationList.map(
+      (registration) => registration.id
+    );
+
+    const onlineDelegateCount = allDelegates.filter((delegate) =>
+      registrationIds.includes(delegate.registration_id)
+    ).length;
+
+    churchMap.set(key, {
+      key,
+      name,
+      address: church["Church Address"] || "",
+      representative: church["Delegation Head Name"] || "",
+      contact: church["Contact No."] || "",
+      email: church["Email Address"] || "",
+      timestamp: church.Timestamp || null,
+      onlineRegistrationId: churchRegistrationList[0]?.id ?? null,
+      onsiteRegistrationId: null,
+      delegateCount: onlineDelegateCount,
+      onlineSubmissionCount: churchRegistrationList.length,
+      onsiteSubmissionCount: 0,
+    });
+  }
+
+  for (const registration of walkInRegistrations) {
+    const name = registration["Church Name"]?.trim();
+    if (!name) continue;
+
+    const key = normalizeChurchName(name);
+
+    const onsiteDelegateCount = allDelegates.filter(
+      (delegate) => delegate.onsite_registration_id === registration.id
+    ).length;
+
+    const existingChurch = churchMap.get(key);
+
+    if (existingChurch) {
+      existingChurch.delegateCount += onsiteDelegateCount;
+      existingChurch.onsiteSubmissionCount += 1;
+
+      if (
+        registration.Timestamp &&
+        (!existingChurch.timestamp ||
+          new Date(registration.Timestamp).getTime() >
+            new Date(existingChurch.timestamp).getTime())
+      ) {
+        existingChurch.timestamp = registration.Timestamp;
+      }
+
+      if (!existingChurch.onsiteRegistrationId) {
+        existingChurch.onsiteRegistrationId = registration.id;
+      }
+    } else {
+      churchMap.set(key, {
+        key,
+        name,
+        address: registration["Church Address"] || "",
+        representative:
+          registration["Delegation Head Name"] ||
+          registration["Registered By"] ||
+          "",
+        contact: registration["Contact No."] || "",
+        email: registration["Email Address"] || "",
+        timestamp: registration.Timestamp || null,
+        onlineRegistrationId: null,
+        onsiteRegistrationId: registration.id,
+        delegateCount: onsiteDelegateCount,
+        onlineSubmissionCount: 0,
+        onsiteSubmissionCount: 1,
+      });
+    }
+  }
+
+  const churchRows = Array.from(churchMap.values()).sort((a, b) => {
+    const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return dateB - dateA;
+  });
+
+  const totalChurches = churchRows.length;
+  const totalRegistrations =
+    onlineRegistrations.length + walkInRegistrations.length;
+  const totalDelegates = allDelegates.length;
 
   return (
     <main className="min-h-screen bg-[#f7f8f5] text-[#20251f]">
@@ -61,11 +176,8 @@ export default async function RegistrationsPage() {
             <p className="text-xs font-semibold tracking-[0.2em] text-[#66836b]">
               YOUTH CAMP 2027
             </p>
-            <h1 className="mt-1 text-xl font-bold">
-              Registration Management
-            </h1>
+            <h1 className="mt-1 text-xl font-bold">Registration Management</h1>
           </div>
-
           <Link
             href="/admin"
             className="text-sm font-medium text-gray-500 hover:text-[#304b38]"
@@ -77,14 +189,10 @@ export default async function RegistrationsPage() {
 
       <div className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-8">
-          <p className="text-sm font-medium text-[#66836b]">
-            MANAGEMENT CENTER
-          </p>
-          <h2 className="mt-2 text-3xl font-bold">
-            Church Registrations
-          </h2>
+          <p className="text-sm font-medium text-[#66836b]">MANAGEMENT CENTER</p>
+          <h2 className="mt-2 text-3xl font-bold">Church Registrations</h2>
           <p className="mt-2 text-gray-500">
-            View churches that have submitted their camp pre-registration.
+            View churches and delegates from both online and on-site registrations.
           </p>
         </div>
 
@@ -116,11 +224,11 @@ export default async function RegistrationsPage() {
           <div className="border-b border-gray-200 px-6 py-5">
             <h3 className="font-bold">Church List</h3>
             <p className="mt-1 text-sm text-gray-500">
-              Select a church name to view its complete registration.
+              Open the online or walk-in submission details for each church.
             </p>
           </div>
 
-          {churches && churches.length > 0 ? (
+          {churchRows.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-[#f7f8f5] text-xs uppercase tracking-wide text-gray-500">
@@ -129,73 +237,75 @@ export default async function RegistrationsPage() {
                     <th className="px-6 py-4">Representative</th>
                     <th className="px-6 py-4">Contact</th>
                     <th className="px-6 py-4">Delegates</th>
+                    <th className="px-6 py-4">Submissions</th>
                     <th className="px-6 py-4">Date Submitted</th>
                   </tr>
                 </thead>
-
                 <tbody className="divide-y divide-gray-100">
-                  {churches.map((church) => {
-                    const churchRegistration = registrations?.find(
-                      (registration) =>
-                        registration.church_id === church.id
-                    );
-
-                    const churchDelegates = delegates?.filter(
-                      (delegate) =>
-                        delegate.registration_id === churchRegistration?.id
-                    ).length ?? 0;
-
-                    return (
-                      <tr key={church.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-5">
-                          {churchRegistration ? (
+                  {churchRows.map((church) => (
+                    <tr key={church.key} className="hover:bg-gray-50">
+                      <td className="px-6 py-5">
+                        <p className="font-semibold">{church.name}</p>
+                        {church.address && (
+                          <p className="mt-1 text-xs text-gray-400">
+                            {church.address}
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">
+                          {church.onlineRegistrationId && (
                             <Link
-                              href={`/admin/registrations/${churchRegistration.id}`}
-                              className="font-semibold text-[#304b38] hover:underline"
+                              href={`/admin/registrations/${church.onlineRegistrationId}`}
+                              className="text-[#304b38] hover:underline"
                             >
-                              {church["Church Name"]} →
+                              Online details →
                             </Link>
-                          ) : (
-                            <p className="font-semibold">
-                              {church["Church Name"]}
-                            </p>
                           )}
-
+                          {church.onsiteRegistrationId && (
+                            <Link
+                              href={`/admin/registrations/${church.onsiteRegistrationId}`}
+                              className="text-blue-700 hover:underline"
+                            >
+                              Walk-in details →
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">{church.representative || "—"}</td>
+                      <td className="px-6 py-5">
+                        {church.contact || "—"}
+                        {church.email && (
                           <p className="mt-1 text-xs text-gray-400">
-                            {church["Church Address"]}
+                            {church.email}
                           </p>
-                        </td>
-
-                        <td className="px-6 py-5">
-                          {church["Delegation Head Name"]}
-                        </td>
-
-                        <td className="px-6 py-5">
-                          <p>{church["Contact No."]}</p>
-                          <p className="mt-1 text-xs text-gray-400">
-                            {church["Email Address"] || "No email provided"}
-                          </p>
-                        </td>
-
-                        <td className="px-6 py-5 font-semibold">
-                          {churchDelegates}
-                        </td>
-
-                        <td className="px-6 py-5 text-gray-500">
-                          {church.Timestamp
-                            ? new Date(church.Timestamp).toLocaleDateString(
-                                "en-PH",
-                                {
-                                  year: "numeric",
-                                  month: "short",
-                                  day: "numeric",
-                                }
-                              )
-                            : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                        )}
+                      </td>
+                      <td className="px-6 py-5 font-semibold">
+                        {church.delegateCount}
+                      </td>
+                      <td className="px-6 py-5">
+                        <p>
+                          {church.onlineSubmissionCount +
+                            church.onsiteSubmissionCount}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-400">
+                          {church.onlineSubmissionCount} online ·{" "}
+                          {church.onsiteSubmissionCount} walk-in
+                        </p>
+                      </td>
+                      <td className="px-6 py-5 text-gray-500">
+                        {church.timestamp
+                          ? new Date(church.timestamp).toLocaleDateString(
+                              "en-PH",
+                              {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              }
+                            )
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

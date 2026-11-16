@@ -25,13 +25,20 @@ export default async function AdminDashboard() {
   }
 
   const [
-    registrationsResult,
-    delegatesResult,
-    pendingPaymentsResult,
-    verifiedPaymentsResult,
+    onlineRegistrations,
+    onsiteRegistrations,
+    delegates,
+    onlinePendingPayments,
+    onsitePendingPayments,
+    onlineVerifiedPayments,
+    onsiteVerifiedPayments,
   ] = await Promise.all([
     supabaseAdmin
       .from("Registrations")
+      .select("*", { count: "exact", head: true }),
+
+    supabaseAdmin
+      .from("On-Site Registrations")
       .select("*", { count: "exact", head: true }),
 
     supabaseAdmin
@@ -44,88 +51,140 @@ export default async function AdminDashboard() {
       .eq("Status", "pending_verification"),
 
     supabaseAdmin
+      .from("On-Site Payments")
+      .select("*", { count: "exact", head: true })
+      .eq("Status", "pending_verification"),
+
+    supabaseAdmin
       .from("Payments")
+      .select("*", { count: "exact", head: true })
+      .eq("Status", "verified"),
+
+    supabaseAdmin
+      .from("On-Site Payments")
       .select("*", { count: "exact", head: true })
       .eq("Status", "verified"),
   ]);
 
   const results = [
-    registrationsResult,
-    delegatesResult,
-    pendingPaymentsResult,
-    verifiedPaymentsResult,
+    onlineRegistrations,
+    onsiteRegistrations,
+    delegates,
+    onlinePendingPayments,
+    onsitePendingPayments,
+    onlineVerifiedPayments,
+    onsiteVerifiedPayments,
   ];
 
-  if (results.some((result) => result.error)) {
+  const failedResults = results.filter((result) => result.error);
+
+  if (failedResults.length > 0) {
     console.error(
-      "Dashboard database error:",
-      results
-        .filter((result) => result.error)
-        .map((result) => result.error?.message)
+      "Dashboard database errors:",
+      failedResults.map((result) => result.error?.message)
     );
   }
 
+  const paymentStatsAvailable =
+    !onlinePendingPayments.error &&
+    !onsitePendingPayments.error &&
+    !onlineVerifiedPayments.error &&
+    !onsiteVerifiedPayments.error;
+
   const stats = [
     {
-      label: "Total Registrations",
-      value: registrationsResult.error ? "—" : registrationsResult.count ?? 0,
-      description: "Church registration submissions",
+      label: "Online Registrations",
+      value: onlineRegistrations.error
+        ? "—"
+        : onlineRegistrations.count ?? 0,
+      description: "Church pre-registration submissions",
+    },
+    {
+      label: "Walk-in Registrations",
+      value: onsiteRegistrations.error
+        ? "—"
+        : onsiteRegistrations.count ?? 0,
+      description: "On-site registration submissions",
     },
     {
       label: "Total Delegates",
-      value: delegatesResult.error ? "—" : delegatesResult.count ?? 0,
-      description: "Registered camp participants",
+      value: delegates.error ? "—" : delegates.count ?? 0,
+      description: "Online and on-site participants",
     },
     {
       label: "Pending Payments",
-      value: pendingPaymentsResult.error ? "—" : pendingPaymentsResult.count ?? 0,
-      description: "Awaiting finance verification",
+      value: paymentStatsAvailable
+        ? (onlinePendingPayments.count ?? 0) +
+          (onsitePendingPayments.count ?? 0)
+        : "—",
+      description: "Online and on-site payments awaiting verification",
     },
     {
       label: "Verified Payments",
-      value: verifiedPaymentsResult.error ? "—" : verifiedPaymentsResult.count ?? 0,
-      description: "Payments confirmed by finance",
+      value: paymentStatsAvailable
+        ? (onlineVerifiedPayments.count ?? 0) +
+          (onsiteVerifiedPayments.count ?? 0)
+        : "—",
+      description: "Online and on-site payments confirmed",
     },
   ];
 
   const managementItems = [
     {
       title: "Registrations",
-      description: "View churches and their submitted registrations.",
+      description:
+        "View online and walk-in churches, representatives, and registration details.",
       href: "/admin/registrations",
-      available: true,
       action: "Open Registrations",
     },
     {
       title: "Delegates",
-      description: "View registered participants through their church registration records.",
-      href: "/admin/registrations",
-      available: true,
+      description:
+        "View and manage all online and on-site camp participants.",
+      href: "/admin/delegates",
       action: "View Delegate Records",
     },
     {
       title: "Payment Verification",
-      description: "Review GCash receipts and verify or reject payments.",
+      description:
+        "Review online GCash payments and on-site Cash or GCash payments.",
       href: "/admin/payments",
-      available: true,
       action: "Open Payment Verification",
     },
     {
       title: "Discount Verification",
-      description: "Review claimed delegate discounts and verify eligibility.",
+      description:
+        "Review discount claims and manage additional payments for rejected claims.",
       href: "/admin/discounts",
-      available: true,
       action: "Open Discount Verification",
     },
     {
       title: "Group Assignment",
-      description: "Organize delegates into camp groups.",
-      available: false,
+      description:
+        "Organize eligible online and on-site delegates into camp groups.",
+      href: "/admin/groups",
+      action: "Open Group Assignment",
+    },
+    {
+      title: "On-Site Registration",
+      description:
+        "Register walk-in churches and delegates using the organizer's iPad.",
+      href: "/admin/onsite",
+      action: "Open Registration Form",
+    },
+    {
+      title: "On-Site Records",
+      description:
+        "View and manage walk-in registrations, church details, delegates, payments, and discount verification.",
+      href: "/admin/onsite/records",
+      action: "Manage On-Site Records",
     },
     {
       title: "Reports",
-      description: "Prepare registration and payment reports.",
-      available: false,
+      description:
+        "View registration, delegate, financial, discount, and group assignment reports.",
+      href: "/admin/reports",
+      action: "Open Reports",
     },
   ];
 
@@ -160,7 +219,8 @@ export default async function AdminDashboard() {
             Welcome, Organizer!
           </h2>
           <p className="mt-2 text-gray-500">
-            Here's an overview of your Youth Camp 2027 pre-registration.
+            Here's an overview of your Youth Camp 2027 registrations and
+            operations.
           </p>
         </div>
 
@@ -169,7 +229,7 @@ export default async function AdminDashboard() {
             Registration Overview
           </h3>
 
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {stats.map((stat) => (
               <div
                 key={stat.label}
@@ -178,9 +238,11 @@ export default async function AdminDashboard() {
                 <p className="text-sm font-medium text-gray-500">
                   {stat.label}
                 </p>
+
                 <p className="mt-4 text-4xl font-bold text-[#304b38]">
                   {stat.value}
                 </p>
+
                 <p className="mt-2 text-xs text-gray-400">
                   {stat.description}
                 </p>
@@ -211,20 +273,12 @@ export default async function AdminDashboard() {
                   {item.description}
                 </p>
 
-                {item.available && item.href ? (
-                  <Link
-                    href={item.href}
-                    className="mt-6 inline-flex w-fit items-center rounded-full bg-[#304b38] px-5 py-3 text-xs font-semibold text-white transition hover:bg-[#46634d]"
-                  >
-                    {item.action} →
-                  </Link>
-                ) : (
-                  <div className="mt-6">
-                    <span className="inline-block rounded-full bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-500">
-                      COMING SOON
-                    </span>
-                  </div>
-                )}
+                <Link
+                  href={item.href}
+                  className="mt-6 inline-flex w-fit items-center rounded-full bg-[#304b38] px-5 py-3 text-xs font-semibold text-white transition hover:bg-[#46634d]"
+                >
+                  {item.action} →
+                </Link>
               </div>
             ))}
           </div>
