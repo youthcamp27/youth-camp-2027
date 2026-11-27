@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Group = {
@@ -15,6 +15,7 @@ type Delegate = {
   Age: number;
   Sex: string;
   Occupation: string;
+  churchName: string;
 };
 
 type Assignment = {
@@ -99,6 +100,7 @@ export default function GroupAssignmentControls({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [delegateSearch, setDelegateSearch] = useState("");
 
   const assignedIds = new Set(
     assignments.map((assignment) => assignment.delegate_id)
@@ -121,6 +123,56 @@ export default function GroupAssignmentControls({
         delegate: Delegate;
       } => Boolean(item.delegate)
     );
+
+  // Group existing assignments by church.
+  const assignedByChurch = useMemo(() => {
+    const grouped: Record<
+      string,
+      {
+        assignment: Assignment;
+        delegate: Delegate;
+      }[]
+    > = {};
+
+    assigned.forEach((item) => {
+      const churchName = item.delegate.churchName || "Unknown Church";
+
+      if (!grouped[churchName]) {
+        grouped[churchName] = [];
+      }
+
+      grouped[churchName].push(item);
+    });
+
+    return Object.entries(grouped)
+      .sort(([churchA], [churchB]) =>
+        churchA.localeCompare(churchB)
+      )
+      .map(([churchName, members]) => ({
+        churchName,
+        members: members.sort((a, b) =>
+          a.delegate["Full Name"].localeCompare(
+            b.delegate["Full Name"]
+          )
+        ),
+      }));
+  }, [assigned]);
+
+  // Search delegates by name across all churches.
+  const filteredAssignedByChurch = useMemo(() => {
+    const search = delegateSearch.trim().toLowerCase();
+
+    if (!search) return assignedByChurch;
+
+    return assignedByChurch
+      .map((church) => ({
+        ...church,
+        members: church.members.filter(({ delegate }) =>
+          delegate["Full Name"].toLowerCase().includes(search)
+        ),
+      }))
+      .filter((church) => church.members.length > 0);
+  }, [assignedByChurch, delegateSearch]);
 
   const finalizedCount = assignments.filter(
     (assignment) =>
@@ -513,6 +565,9 @@ export default function GroupAssignmentControls({
                     {delegate["Full Name"]}
                   </p>
                   <p className="mt-1 text-xs text-gray-400">
+                    {delegate.churchName || "Unknown Church"}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400">
                     {delegate.Age} years old · {delegate.Sex} ·{" "}
                     {delegate.Occupation}
                   </p>
@@ -577,110 +632,210 @@ export default function GroupAssignmentControls({
             Manage Existing Assignments
           </h3>
           <p className="mt-1 text-sm text-gray-500">
-            Transfer delegates between groups or remove provisional assignments.
+            Delegates are organized by church. Search by name to find
+            a specific delegate, transfer them between groups, or
+            remove provisional assignments.
+          </p>
+
+          {/* Delegate search */}
+          <div className="relative mt-5 max-w-xl">
+            <input
+              type="search"
+              value={delegateSearch}
+              onChange={(event) =>
+                setDelegateSearch(event.target.value)
+              }
+              placeholder="Search delegate by full name..."
+              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 pl-11 text-sm outline-none transition placeholder:text-gray-400 focus:border-[#66836b] focus:ring-2 focus:ring-[#66836b]/10"
+            />
+
+            <svg
+              className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+          </div>
+
+          <p className="mt-2 text-xs text-gray-400">
+            Showing{" "}
+            {filteredAssignedByChurch.reduce(
+              (total, church) => total + church.members.length,
+              0
+            )}{" "}
+            of {assigned.length} assigned delegates
           </p>
         </div>
 
         {assigned.length > 0 ? (
-          <div className="divide-y divide-gray-100">
-            {assigned.map(({ assignment, delegate }) => {
-              const isFinalized =
-                assignment["Assignment Status"] === "finalized";
-
-              return (
-                <div
-                  key={assignment.delegate_id}
-                  className="flex flex-col gap-4 px-6 py-5"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">
-                        {delegate["Full Name"]}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-400">
-                        Currently assigned to{" "}
-                        {groups.find(
-                          (group) => group.id === assignment.group_id
-                        )?.["Group Name"] || "Unknown group"}
-                      </p>
+          filteredAssignedByChurch.length > 0 ? (
+            <div className="divide-y divide-gray-200">
+              {filteredAssignedByChurch.map(
+                ({ churchName, members }) => (
+                  <div key={churchName}>
+                    {/* Church heading */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-[#f5f7f4] px-6 py-4">
+                      <div>
+                        <h4 className="font-bold text-[#304b38]">
+                          {churchName}
+                        </h4>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {members.length}{" "}
+                          {members.length === 1
+                            ? "delegate"
+                            : "delegates"}
+                        </p>
+                      </div>
                     </div>
 
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        isFinalized
-                          ? "bg-green-50 text-green-700"
-                          : "bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      {isFinalized ? "Finalized" : "Provisional"}
-                    </span>
+                    {/* Church delegates */}
+                    <div className="divide-y divide-gray-100">
+                      {members.map(({ assignment, delegate }) => {
+                        const isFinalized =
+                          assignment["Assignment Status"] ===
+                          "finalized";
+
+                        return (
+                          <div
+                            key={assignment.delegate_id}
+                            className="flex flex-col gap-4 px-6 py-5"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="font-semibold">
+                                  {delegate["Full Name"]}
+                                </p>
+
+                                <p className="mt-1 text-xs text-gray-400">
+                                  {delegate.Age} years old ·{" "}
+                                  {delegate.Sex} ·{" "}
+                                  {delegate.Occupation}
+                                </p>
+
+                                <p className="mt-1 text-xs text-gray-500">
+                                  Currently assigned to{" "}
+                                  {groups.find(
+                                    (group) =>
+                                      group.id === assignment.group_id
+                                  )?.["Group Name"] ||
+                                    "Unknown group"}
+                                </p>
+                              </div>
+
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                  isFinalized
+                                    ? "bg-green-50 text-green-700"
+                                    : "bg-amber-50 text-amber-700"
+                                }`}
+                              >
+                                {isFinalized
+                                  ? "Finalized"
+                                  : "Provisional"}
+                              </span>
+                            </div>
+
+                            {!isFinalized && (
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                <select
+                                  value={
+                                    selectedGroups[delegate.id] ??
+                                    assignment.group_id
+                                  }
+                                  onChange={(event) =>
+                                    setSelectedGroups((previous) => ({
+                                      ...previous,
+                                      [delegate.id]:
+                                        event.target.value,
+                                    }))
+                                  }
+                                  className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                                  disabled={loading}
+                                >
+                                  {groups.map((group) => (
+                                    <option
+                                      key={group.id}
+                                      value={group.id}
+                                    >
+                                      {group["Group Name"]}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  type="button"
+                                  disabled={
+                                    loading ||
+                                    !selectedGroups[delegate.id] ||
+                                    selectedGroups[delegate.id] ===
+                                      assignment.group_id
+                                  }
+                                  onClick={() =>
+                                    performAction(
+                                      "assign",
+                                      delegate.id,
+                                      selectedGroups[delegate.id]
+                                    )
+                                  }
+                                  className="rounded-full border border-[#304b38] px-5 py-3 text-xs font-semibold text-[#304b38] hover:bg-[#f0f3ef] disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  Transfer
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={loading}
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        `Remove ${delegate["Full Name"]} from their assigned group?`
+                                      )
+                                    ) {
+                                      performAction(
+                                        "remove",
+                                        delegate.id
+                                      );
+                                    }
+                                  }}
+                                  className="rounded-full border border-red-200 px-5 py-3 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
+                )
+              )}
+            </div>
+          ) : (
+            <div className="px-6 py-12 text-center">
+              <p className="font-semibold text-gray-600">
+                No matching delegates found.
+              </p>
+              <p className="mt-2 text-sm text-gray-400">
+                Try another name or clear your search.
+              </p>
 
-                  {!isFinalized && (
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <select
-                        value={
-                          selectedGroups[delegate.id] ??
-                          assignment.group_id
-                        }
-                        onChange={(event) =>
-                          setSelectedGroups((previous) => ({
-                            ...previous,
-                            [delegate.id]: event.target.value,
-                          }))
-                        }
-                        className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
-                        disabled={loading}
-                      >
-                        {groups.map((group) => (
-                          <option key={group.id} value={group.id}>
-                            {group["Group Name"]}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        disabled={
-                          loading ||
-                          !selectedGroups[delegate.id] ||
-                          selectedGroups[delegate.id] ===
-                            assignment.group_id
-                        }
-                        onClick={() =>
-                          performAction(
-                            "assign",
-                            delegate.id,
-                            selectedGroups[delegate.id]
-                          )
-                        }
-                        className="rounded-full border border-[#304b38] px-5 py-3 text-xs font-semibold text-[#304b38] hover:bg-[#f0f3ef] disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Transfer
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              `Remove ${delegate["Full Name"]} from their assigned group?`
-                            )
-                          ) {
-                            performAction("remove", delegate.id);
-                          }
-                        }}
-                        className="rounded-full border border-red-200 px-5 py-3 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+              <button
+                type="button"
+                onClick={() => setDelegateSearch("")}
+                className="mt-4 text-sm font-semibold text-[#304b38] hover:underline"
+              >
+                Clear Search
+              </button>
+            </div>
+          )
         ) : (
           <div className="px-6 py-12 text-center text-sm text-gray-400">
             No group assignments yet.

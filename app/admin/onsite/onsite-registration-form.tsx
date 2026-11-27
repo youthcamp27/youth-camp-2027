@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 type Delegate = {
   fullName: string;
+  nickname: string;
   age: string;
   sex: string;
   occupation: string;
@@ -13,6 +14,7 @@ type Delegate = {
 
 const createDelegate = (): Delegate => ({
   fullName: "",
+  nickname: "",
   age: "",
   sex: "",
   occupation: "",
@@ -131,6 +133,7 @@ export default function OnsiteRegistrationForm() {
           emailAddress: emailAddress.trim(),
           delegates: delegates.map((delegate) => ({
             fullName: delegate.fullName.trim(),
+            nickname: delegate.nickname.trim(),
             age: Number(delegate.age),
             sex: delegate.sex,
             occupation: delegate.occupation,
@@ -331,7 +334,7 @@ export default function OnsiteRegistrationForm() {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="block md:col-span-2">
                 <span className="mb-1 block text-sm font-medium">
-                  Full Name
+                  Full Name *
                 </span>
                 <input
                   required
@@ -340,9 +343,27 @@ export default function OnsiteRegistrationForm() {
                   onChange={(event) =>
                     updateDelegate(index, "fullName", event.target.value)
                   }
-                  placeholder="Enter delegate's full name"
+                  placeholder="Enter delegate's official full name"
                   className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-[#66836b]"
                 />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-sm font-medium">
+                  Nickname / Name to be Printed on Delegate ID (Optional)
+                </span>
+                <input
+                  maxLength={50}
+                  value={delegate.nickname}
+                  onChange={(event) =>
+                    updateDelegate(index, "nickname", event.target.value)
+                  }
+                  placeholder="Enter preferred name for ID"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-[#66836b]"
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  Leave blank to use the delegate's official full name on the ID.
+                </p>
               </label>
 
               <label className="block">

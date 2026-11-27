@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const delegateSchema = z.object({
   fullName: z.string().trim().min(2, "Delegate name is required").max(150),
+  nickname: z.string().trim().max(50).optional().default(""),
   age: z.number().int().min(1).max(100),
   sex: z.enum(["Male", "Female"]),
   category: z.enum([

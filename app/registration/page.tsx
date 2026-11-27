@@ -7,6 +7,7 @@ import Link from "next/link";
 type Delegate = {
   id: number;
   fullName: string;
+  nickname: string;
   age: string;
   sex: string;
   category: string;
@@ -32,6 +33,7 @@ export default function Registration() {
     {
       id: 1,
       fullName: "",
+      nickname: "",
       age: "",
       sex: "",
       category: "",
@@ -75,6 +77,7 @@ export default function Registration() {
       {
         id: Date.now() + Math.random(),
         fullName: "",
+        nickname: "",
         age: "",
         sex: "",
         category: "",
@@ -133,6 +136,7 @@ export default function Registration() {
         ...church,
         delegates: delegates.map((delegate) => ({
           fullName: delegate.fullName.trim(),
+          nickname: delegate.nickname.trim(),
           age: Number(delegate.age),
           sex: delegate.sex,
           category: delegate.category,
@@ -424,6 +428,34 @@ export default function Registration() {
                                 )
                               }
                             />
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <label className={labelClass}>
+                              Nickname / Name to be Printed on Delegate ID
+                              <span className="ml-2 text-xs font-normal text-gray-400">
+                                (Optional)
+                              </span>
+                            </label>
+
+                            <input
+                              maxLength={100}
+                              className={inputClass}
+                              placeholder="Enter preferred name for delegate ID"
+                              value={delegate.nickname}
+                              onChange={(e) =>
+                                updateDelegate(
+                                  delegate.id,
+                                  "nickname",
+                                  e.target.value
+                                )
+                              }
+                            />
+
+                            <p className="mt-2 text-xs text-gray-500">
+                              Leave blank if you want your official full name
+                              printed on your ID.
+                            </p>
                           </div>
 
                           <div>
@@ -807,6 +839,12 @@ export default function Registration() {
                         </div>
 
                         <p className="text-sm">{delegate.fullName}</p>
+
+                        <p className="mt-1 text-xs text-gray-500">
+                          Name on ID:{" "}
+                          {delegate.nickname.trim() || delegate.fullName}
+                        </p>
+
                         <p className="mt-1 text-xs text-gray-500">
                           Age: {delegate.age} · {delegate.sex} ·{" "}
                           {delegate.category}

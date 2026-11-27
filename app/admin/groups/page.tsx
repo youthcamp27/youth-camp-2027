@@ -6,6 +6,15 @@ import { createClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import GroupAssignmentControls from "./group-assignment-controls";
 
+type DelegateRecord = {
+  id: string;
+  "Full Name": string;
+  Age: number;
+  Sex: string;
+  Occupation: string;
+  churchName: string;
+};
+
 export default function GroupAssignmentPage() {
   return (
     <Suspense
@@ -57,11 +66,11 @@ async function GroupAssignmentContent() {
 
   const allGroups = groupsData ?? [];
 
-  // 3. Retrieve approved online registrations.
+  // 3. Retrieve approved online registrations and their church IDs.
   const { data: registrationsData, error: registrationsError } =
     await supabaseAdmin
       .from("Registrations")
-      .select("id")
+      .select("id, church_id")
       .eq("Status", "approved");
 
   if (registrationsError) {
@@ -69,26 +78,60 @@ async function GroupAssignmentContent() {
     throw new Error("Unable to load approved registrations.");
   }
 
-  const registrationIds = (registrationsData ?? []).map(
+  const approvedRegistrations = registrationsData ?? [];
+
+  const registrationIds = approvedRegistrations.map(
     (registration) => registration.id
   );
 
-  // 4. Retrieve delegates from approved online registrations.
-  type DelegateRecord = {
-    id: string;
-    "Full Name": string;
-    Age: number;
-    Sex: string;
-    Occupation: string;
-  };
+  const churchIds = [
+    ...new Set(
+      approvedRegistrations
+        .map((registration) => registration.church_id)
+        .filter(Boolean)
+    ),
+  ];
 
+  // 4. Retrieve church names for online registrations.
+  let onlineChurches: { id: string; "Church Name": string }[] = [];
+
+  if (churchIds.length > 0) {
+    const { data: churchesData, error: churchesError } =
+      await supabaseAdmin
+        .from("Churches")
+        .select('id, "Church Name"')
+        .in("id", churchIds);
+
+    if (churchesError) {
+      console.error("Churches query error:", churchesError);
+      throw new Error("Unable to load church names.");
+    }
+
+    onlineChurches = churchesData ?? [];
+  }
+
+  const churchNameById = new Map(
+    onlineChurches.map((church) => [
+      church.id,
+      church["Church Name"] || "Unknown Church",
+    ])
+  );
+
+  const onlineChurchByRegistrationId = new Map(
+    approvedRegistrations.map((registration) => [
+      registration.id,
+      churchNameById.get(registration.church_id) || "Unknown Church",
+    ])
+  );
+
+  // 5. Retrieve delegates from approved online registrations.
   let onlineDelegates: DelegateRecord[] = [];
 
   if (registrationIds.length > 0) {
     const { data: delegatesData, error: delegatesError } =
       await supabaseAdmin
         .from("Delegates")
-        .select('id, "Full Name", "Age", "Sex", "Occupation"')
+        .select('id, "Full Name", "Age", "Sex", "Occupation", registration_id')
         .in("registration_id", registrationIds)
         .order("Full Name");
 
@@ -97,14 +140,23 @@ async function GroupAssignmentContent() {
       throw new Error("Unable to load online delegates.");
     }
 
-    onlineDelegates = delegatesData ?? [];
+    onlineDelegates = (delegatesData ?? []).map((delegate) => ({
+      id: delegate.id,
+      "Full Name": delegate["Full Name"],
+      Age: delegate.Age,
+      Sex: delegate.Sex,
+      Occupation: delegate.Occupation,
+      churchName:
+        onlineChurchByRegistrationId.get(delegate.registration_id) ||
+        "Unknown Church",
+    }));
   }
 
-  // 5. Retrieve verified on-site registrations.
+  // 6. Retrieve verified on-site registrations and their church names.
   const { data: onsiteRegistrations, error: onsiteError } =
     await supabaseAdmin
       .from("On-Site Registrations")
-      .select("id")
+      .select('id, "Church Name"')
       .eq("Status", "verified");
 
   if (onsiteError) {
@@ -112,11 +164,20 @@ async function GroupAssignmentContent() {
     throw new Error("Unable to load on-site registrations.");
   }
 
-  const onsiteRegistrationIds = (onsiteRegistrations ?? []).map(
+  const allOnsiteRegistrations = onsiteRegistrations ?? [];
+
+  const onsiteRegistrationIds = allOnsiteRegistrations.map(
     (registration) => registration.id
   );
 
-  // 6. Only include on-site registrations with verified payments.
+  const onsiteChurchByRegistrationId = new Map(
+    allOnsiteRegistrations.map((registration) => [
+      registration.id,
+      registration["Church Name"] || "Unknown Church",
+    ])
+  );
+
+  // 7. Only include on-site registrations with verified payments.
   let verifiedOnsiteRegistrationIds: string[] = [];
 
   if (onsiteRegistrationIds.length > 0) {
@@ -141,14 +202,14 @@ async function GroupAssignmentContent() {
     ];
   }
 
-  // 7. Retrieve eligible walk-in delegates.
+  // 8. Retrieve eligible walk-in delegates.
   let onsiteDelegates: DelegateRecord[] = [];
 
   if (verifiedOnsiteRegistrationIds.length > 0) {
     const { data: onsiteDelegatesData, error: onsiteDelegatesError } =
       await supabaseAdmin
         .from("Delegates")
-        .select('id, "Full Name", "Age", "Sex", "Occupation"')
+        .select('id, "Full Name", "Age", "Sex", "Occupation", onsite_registration_id')
         .in("onsite_registration_id", verifiedOnsiteRegistrationIds)
         .order("Full Name");
 
@@ -157,10 +218,20 @@ async function GroupAssignmentContent() {
       throw new Error("Unable to load walk-in delegates.");
     }
 
-    onsiteDelegates = onsiteDelegatesData ?? [];
+    onsiteDelegates = (onsiteDelegatesData ?? []).map((delegate) => ({
+      id: delegate.id,
+      "Full Name": delegate["Full Name"],
+      Age: delegate.Age,
+      Sex: delegate.Sex,
+      Occupation: delegate.Occupation,
+      churchName:
+        onsiteChurchByRegistrationId.get(
+          delegate.onsite_registration_id
+        ) || "Unknown Church",
+    }));
   }
 
-  // 8. Combine online and walk-in delegates.
+  // 9. Combine online and walk-in delegates.
   // Prevent duplicate delegate IDs.
   const allDelegates = Array.from(
     new Map(
@@ -170,7 +241,7 @@ async function GroupAssignmentContent() {
     ).values()
   );
 
-  // 9. Retrieve existing assignments.
+  // 10. Retrieve existing assignments.
   const { data: assignmentsData, error: assignmentsError } =
     await supabaseAdmin
       .from("Group Assignments")
@@ -183,7 +254,7 @@ async function GroupAssignmentContent() {
 
   const allAssignments = assignmentsData ?? [];
 
-  // 10. Keep assignments belonging to eligible delegates.
+  // 11. Keep assignments belonging to eligible delegates.
   const delegateById = new Map(
     allDelegates.map((delegate) => [delegate.id, delegate])
   );
@@ -212,7 +283,7 @@ async function GroupAssignmentContent() {
     (assignment) => assignment["Assignment Status"] === "finalized"
   ).length;
 
-  // 11. Display the management page.
+  // 12. Display the management page.
   return (
     <main className="min-h-screen bg-[#faf9f6] text-[#20251f]">
       <div className="mx-auto max-w-7xl px-6 py-10">
@@ -298,7 +369,7 @@ async function GroupAssignmentContent() {
                   (assignment) =>
                     delegateById.get(assignment.delegate_id)
                 )
-                .filter(Boolean);
+                .filter((delegate) => Boolean(delegate));
 
               return (
                 <div
@@ -333,7 +404,7 @@ async function GroupAssignmentContent() {
                             </p>
 
                             <p className="text-xs text-gray-400">
-                              {delegate!.Occupation} · Age{" "}
+                              {delegate!.churchName} · {delegate!.Occupation} · Age{" "}
                               {delegate!.Age}
                             </p>
                           </div>
